@@ -18,10 +18,13 @@ class Environment:
         return "c:/prj/temp/model.tree"
 
     def filename_results_csv(self):
-        return "c:/prj/temp/dfres.csv"
+        return "c:/prj/mlivos_data/db/results.csv"
+
+    def filename_authors_csv(self):
+        return "c:/prj/mlivos_data/db/authors.csv"
 
     def filename_texts_csv(self):
-        return "c:/prj/temp/texts.csv"
+        return "c:/prj/mlivos_data/db/texts_train.csv"
 
     def filename_corpus_xml(self, num):
         return "c:/prj/corpus/annot/%d.xml" % (num,)
