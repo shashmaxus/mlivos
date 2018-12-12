@@ -35,10 +35,10 @@ def main():
     #print(c.vocabulary())
     #print(enc.word2token('паровоз'))
     #print(enc.word2token('аз'))
-    t.train(n_frac=0.8)
-    #t.test(2048,2048)
+    #t.train(n_frac=0.8)
+    #t.test(2045,2048)
     #a.process_from_texts_file([32,33])
-    #t.vizualize2d(1000)
+    t.vizualize2d(n_frac=0.01)
     ##a.vizualize2d()
     ##a.train()
 

@@ -17,13 +17,23 @@ from sklearn.ensemble import GradientBoostingClassifier
 import xgboost as xgb
 
 from sklearn.preprocessing import StandardScaler
+from sklearn import preprocessing
 
 from sklearn.model_selection import KFold
 from sklearn.model_selection import cross_val_score
 from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
+
+from plotly.offline import iplot, init_notebook_mode
+import plotly.graph_objs as go
+import plotly.io as pio
+
+import plotly.graph_objs as go
+import plotly.plotly as py
+from plotly.graph_objs import *
 
 class POSTagger:
 
@@ -445,53 +455,86 @@ class POSTagger:
         env.debug(1, ['POSTagger', 'test', 'test time:', env.job_time(t_start, t_end),'sec.'])
 
 
-    def vizualize2d(self, n_elements = 100):
+    def vizualize2d(self, n_frac=0.01, b_annotations=False):
         n_components = 2
         env = Environment()
-        df = self.tokenz()
-        data = df.head(n_elements)
+        c = OpenCorpus()
+        di_g = c.grammemes(mode=1)
+        data = self.tokenz().sample(frac=n_frac)
+
+        data = data.fillna(0)
+        #print(data['idgram'].shape)
+        #print(data.index.shape)
+        tdf = pd.DataFrame(index=data.index)
+        tdf['idgram'] = data['idgram']
+        tdf['gram'] = data['gram']
+        tdf['word'] = data['word']
+        #print(tdf)
+
+        drop_columns = ['word', 'gram', 's_suffix2', 's_suffix3',
+                        's_prefix2', 's_prefix3', 'n_token']  # , 'bgm_l_None'
+        # drop_columns.extend(['bgm_l_%s' % (i) for i in range(1, env.bgm_columns_max()) if 'bgm_l_%s' % (i) not in bgm_columns])
+        env.debug(1, ['POStagger', 'visualize2D', 'Drop colums: %s' % (drop_columns)])
+        data = data.drop(columns=drop_columns, axis=1)
         values = data.values
-        X = values[:, 6:12]
-        y = values[:, 1]
-        #print(X, y)
+        X = values[:, 1:]
+        y = values[:, 0]
+        #print(data.head,X, y)
         #return 0
-        pca = PCA(n_components=2)
+        sc = StandardScaler()
+        min_max_scaler = preprocessing.MinMaxScaler()
+        max_abs_scaler = preprocessing.MaxAbsScaler()
+        #X = sc.fit_transform(X)
+
+        pca = PCA(n_components=n_components)
         X_new = pca.fit_transform(X, y)
-        print('PCA ratio 2 components', pca.explained_variance_ratio_)
-        tdf = pd.DataFrame(data=X_new, columns=['PC1', 'PC2'])
-        finalDf = pd.concat([tdf, data[['gram']]], axis=1)
-        #print('dataframe ', finalDf)
-        rcParams['font.family'] = 'sans-serif'
-        rcParams['font.sans-serif'] = ['Tahoma']
-        fig = plt.figure(figsize=(8, 8))
-        ax = fig.add_subplot(1, 1, 1)
-        ax.set_xlabel('Component 1. Вклад '+str(round(pca.explained_variance_ratio_[0],2)), fontsize=12)
-        ax.set_ylabel('Component 2. Вклад '+str(round(pca.explained_variance_ratio_[1],2)), fontsize=12)
-        ax.set_title('2 component PCA. Точность '+str(round(sum(float(i) for i in pca.explained_variance_ratio_),2)), fontsize=12)
-        grouped = data.groupby(['gram'])
-        #print(grouped.groups.keys())
-        targets = grouped.groups.keys()
-        legends = grouped.groups.keys()
-        #print(targets)
-        #for counter, value in enumerate(targets):
-        #    print(counter, value)
-        #colors = ['r', 'g', 'b']
-        #colors = "bgcmykwbgcmykwbgcmykw" #without r
-        colors = ['rosybrown', 'firebrick', 'darksalmon',
-                  'sienna', 'sandybrown','bisque','tan','moccasin',
-                  'forestgreen', 'slateblue','plum',
-                  'yellow', 'orange', 'darkslateblue', 'cyan',
-                  'violet', 'hotpink', 'lawngreen',
-                  'g','c','m','y','k','g','c','m','y','k','w','b','g','c','m','y','k','w']
-        for counter, value in enumerate(targets):
-            #print(cmap(target))
-            indicesToKeep = finalDf['gram'] == value
-            ax.scatter(finalDf.loc[indicesToKeep, 'PC1']
-                       , finalDf.loc[indicesToKeep, 'PC2']
-                       , c = colors [counter]
-                       , s=50)
-        #for index, row in finalDf.iterrows():
-        #    ax.annotate(finalDf.at[index, 'gram'], (finalDf.at[index, 'PC1'], finalDf.at[index, 'PC2']), fontsize=8)
-        ax.legend(legends)
-        ax.grid()
-        plt.show()
+        print('PCA ratio',n_components,'components', pca.explained_variance_ratio_)
+        #X_new = sc.fit_transform(X_new)
+        #X_new = preprocessing.scale(X_new)
+        X_new=max_abs_scaler.fit_transform(X_new)
+        #return 0
+
+        #tdf = pd.DataFrame(data=X_new, columns=['PC1', 'PC2'], index=data.index)
+        tdf['PC1'] = X_new[:, 0]
+        tdf['PC2'] = X_new[:, 1]
+        #finalDf = pd.concat([tdf, data[['idgram']]], axis=1)
+        df_groups = tdf.groupby('idgram').count()
+        #print(df_groups)
+        #return 0
+        tdf['counts'] = 0
+        for index, serie in tdf.iterrows():
+            n_idgram = tdf.at[index, 'idgram']
+            tdf.at[index, 'counts'] = df_groups[df_groups.index == n_idgram]['gram']
+        tdf = tdf.sort_values(by=['counts'], ascending=False)
+        #print(tdf)
+
+        py.sign_in('shashmaxus', 'AdfwTulrOoV3cSlbZT3B')
+        data_trace = []
+        N = df_groups.shape[0]
+        i=0
+        c = ['hsl(' + str(h) + ',50%' + ',50%)' for h in np.linspace(0, 360, N)]
+        for index, row in df_groups.iterrows():
+            #print(index)
+            df_trace = tdf[tdf['idgram'] == index]
+            #print(df_trace)
+            g_trace = go.Scatter (x = df_trace['PC1'].values,
+                                  y = df_trace['PC2'].values,
+                                  name = df_trace['gram'].values[0],
+                                  mode = 'markers',#'markers+text'
+                                  marker = dict(size=8,
+                                              color=i,#c[i]
+                                              opacity=0.8,
+                                                colorscale='Viridis'),
+                                  text=df_trace['word'],
+                                  textfont = dict(family='sans serif',
+                                                  size=12)
+                                    )
+            data_trace.append(g_trace)
+            i+=1
+        layout = go.Layout(
+            title='2 component PCA. Точность %s' % (round(sum(float(i) for i in pca.explained_variance_ratio_),2)),
+            xaxis=dict(title=('Component 1. Вклад %s' % (round(pca.explained_variance_ratio_[0],2)))),
+            yaxis=dict(title=('Component 2. Вклад %s' % (round(pca.explained_variance_ratio_[1],2)))))
+        fig2 = go.Figure(data=data_trace, layout=layout)
+        py.image.save_as(fig2, filename='c:/prj/mlivos_data/temp/Words2.png')
+        return 0

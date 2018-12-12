@@ -94,7 +94,7 @@ class OpenCorpus:
         return df_xml
 
     #Return grammemes dataset
-    def grammemes(self):
+    def grammemes(self, mode=0):
         env = Environment()
         dfgram = pd.DataFrame()
         filename_gram = env.filename_grammemes_csv()
@@ -104,7 +104,10 @@ class OpenCorpus:
             env.debug(1, ['Failed to load grammemes CSV file', filename_gram])
         else:
             env.debug(1, ['Load grammemes CSV file', filename_gram])
-        return dfgram
+        if mode==1:
+            return dfgram.to_dict().get('name')
+        else:
+            return dfgram
 
     #Read corpus XML files and writes to CSV
     def corpus_xml2csv(self, num=1, persistent=True):
