@@ -23,6 +23,7 @@ from sklearn.model_selection import KFold
 from sklearn.model_selection import cross_val_score
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from sklearn.manifold import MDS
 
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
@@ -34,6 +35,13 @@ import plotly.io as pio
 import plotly.graph_objs as go
 import plotly.plotly as py
 from plotly.graph_objs import *
+
+from bokeh.plotting import figure, output_file, show
+from bokeh.models import ColumnDataSource, ColorBar, CategoricalColorMapper
+from bokeh.transform import linear_cmap
+from bokeh.transform import factor_cmap
+from bokeh.palettes import Viridis3, Viridis256, Spectral6, d3, all_palettes, mpl
+from bokeh.io import export_png
 
 class POSTagger:
 
@@ -337,7 +345,7 @@ class POSTagger:
                 clf = DecisionTreeClassifier(criterion='entropy', random_state=seed)  # 0.81
                 env.debug(1, ['Calculate cross_val_score. Splits=%s' % (n_splits)])
                 scores = cross_val_score(clf, X, Y, cv=kf)
-                print(scores)
+                print('DTree scores:',scores.mean(),'raw',scores)
 
             if False: #Logistic regression
                 env.debug(1, ['LGR cross-validation'])
@@ -447,8 +455,9 @@ class POSTagger:
         n_testsize = df_test.shape[0]
         env.debug(1, ['POStagger','test','START %s words' % n_testsize])
         df_test=self.pos(df_test)
+        print('Test result', df_test)
         df_err=df_test[df_test['gram_valid'] != df_test['gram']]
-        print('Errors:',df_err)
+        print('Test errors:',df_err)
         df_err.to_csv(env.filename_test_err_csv(), encoding='utf-8')
         env.debug(1, ['POStagger', 'test', 'test accuracy %s' % (1 - df_err.shape[0] / n_testsize)])
         t_end = timer()
@@ -481,17 +490,27 @@ class POSTagger:
         y = values[:, 0]
         #print(data.head,X, y)
         #return 0
+
+        #Scalers
         sc = StandardScaler()
         min_max_scaler = preprocessing.MinMaxScaler()
         max_abs_scaler = preprocessing.MaxAbsScaler()
         #X = sc.fit_transform(X)
 
-        pca = PCA(n_components=n_components)
-        X_new = pca.fit_transform(X, y)
-        print('PCA ratio',n_components,'components', pca.explained_variance_ratio_)
+        #PCA
+        b_pca = False
+        b_sne = True
+        if b_pca:
+            model = PCA(n_components=n_components)
+        if b_sne:
+            model = MDS(n_components=n_components) #TSNE
+        X_new = model.fit_transform(X, y)
+        if b_pca:
+            print('PCA ratio',n_components,'components', model.explained_variance_ratio_)
         #X_new = sc.fit_transform(X_new)
         #X_new = preprocessing.scale(X_new)
-        X_new=max_abs_scaler.fit_transform(X_new)
+        if b_pca:
+            X_new=max_abs_scaler.fit_transform(X_new)
         #return 0
 
         #tdf = pd.DataFrame(data=X_new, columns=['PC1', 'PC2'], index=data.index)
@@ -508,33 +527,61 @@ class POSTagger:
         tdf = tdf.sort_values(by=['counts'], ascending=False)
         #print(tdf)
 
-        py.sign_in('shashmaxus', 'AdfwTulrOoV3cSlbZT3B')
-        data_trace = []
+        #Draw
+        i = 0
         N = df_groups.shape[0]
-        i=0
-        c = ['hsl(' + str(h) + ',50%' + ',50%)' for h in np.linspace(0, 360, N)]
-        for index, row in df_groups.iterrows():
-            #print(index)
-            df_trace = tdf[tdf['idgram'] == index]
-            #print(df_trace)
-            g_trace = go.Scatter (x = df_trace['PC1'].values,
-                                  y = df_trace['PC2'].values,
-                                  name = df_trace['gram'].values[0],
-                                  mode = 'markers',#'markers+text'
-                                  marker = dict(size=8,
-                                              color=i,#c[i]
-                                              opacity=0.8,
-                                                colorscale='Viridis'),
-                                  text=df_trace['word'],
-                                  textfont = dict(family='sans serif',
-                                                  size=12)
-                                    )
-            data_trace.append(g_trace)
-            i+=1
-        layout = go.Layout(
-            title='2 component PCA. Точность %s' % (round(sum(float(i) for i in pca.explained_variance_ratio_),2)),
-            xaxis=dict(title=('Component 1. Вклад %s' % (round(pca.explained_variance_ratio_[0],2)))),
-            yaxis=dict(title=('Component 2. Вклад %s' % (round(pca.explained_variance_ratio_[1],2)))))
-        fig2 = go.Figure(data=data_trace, layout=layout)
-        py.image.save_as(fig2, filename='c:/prj/mlivos_data/temp/Words2.png')
+        s_title = ''
+        if b_pca:
+            s_title = '2 component PCA. Точность %s' % (round(sum(float(i) for i in model.explained_variance_ratio_), 2))
+        if b_sne:
+            s_title= 't-SNE'
+
+        #Plotly
+        if False: #Plotly
+            py.sign_in('shashmaxus', 'AdfwTulrOoV3cSlbZT3B')
+            c = ['hsl(' + str(h) + ',50%' + ',50%)' for h in np.linspace(0, 360, N)]
+            data_trace = []
+            for index, row in df_groups.iterrows():
+                #print(index)
+                df_trace = tdf[tdf['idgram'] == index]
+                #print(df_trace)
+                g_trace = go.Scatter (x = df_trace['PC1'].values,
+                                      y = df_trace['PC2'].values,
+                                      name = df_trace['gram'].values[0],
+                                      mode = 'markers',#'markers+text'
+                                      marker = dict(size=8,
+                                                  color=i,#c[i]
+                                                  opacity=0.8,
+                                                    colorscale='Viridis'),
+                                      text=df_trace['word'],
+                                      textfont = dict(family='sans serif',
+                                                      size=12)
+                                        )
+                data_trace.append(g_trace)
+                i+=1
+            layout = go.Layout(
+                title=s_title_pca,
+                xaxis=dict(title=('Component 1. Вклад %s' % (round(pca.explained_variance_ratio_[0],2)))),
+                yaxis=dict(title=('Component 2. Вклад %s' % (round(pca.explained_variance_ratio_[1],2)))))
+            fig2 = go.Figure(data=data_trace, layout=layout)
+            py.image.save_as(fig2, filename='c:/prj/mlivos_data/temp/Words2.png')
+
+        #Bokeh
+        if True:
+            palette = d3['Category20'][len(tdf['gram'].unique())]
+            #palette = all_palettes['Category20'][len(tdf['gram'].unique())]
+            #palette = Viridis256[len(tdf['gram'].unique())]
+            #palette = Viridis256
+            color_map = CategoricalColorMapper(factors=tdf['gram'].unique(),
+                                                   palette = palette)
+            #print(mapper)
+            fig = figure(title=s_title, toolbar_location=None)
+            source = ColumnDataSource(tdf[['gram', 'PC1', 'PC2']])
+            fig.scatter(x='PC1',
+                        y='PC2',
+                        size = 12,
+                        color={'field': 'gram', 'transform': color_map},
+                        legend='gram', source=source)
+            show(fig)
+            export_png(fig, filename="c:/prj/mlivos_data/temp/PCA.png")
         return 0

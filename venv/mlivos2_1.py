@@ -17,7 +17,9 @@ def main():
     #c.vocabulary_from_corpus(1,1000)
     g = pd.DataFrame()
     g = c.grammemes()
-    dg = g.to_dict().get('name')
+    #dg = g.to_dict().get('name')
+    dg = c.grammemes(mode=1)
+    #print(dg)
     #print(p.head())
     #for i in range(2015,3000):
     #    c.corpus_xml2csv(i)
@@ -25,7 +27,7 @@ def main():
     #for i in range (125,150):
     #    c.corpus_xml2txt(i)
     #print(c.vocabulary_from_corpus(1,2000).head())
-    voc=c.vocabulary()
+    #voc=c.vocabulary()
     #print(voc.head())
     #t.tokenize()
     #print(t.tokenize(voc, n_frac=1))
@@ -36,11 +38,11 @@ def main():
     #print(enc.word2token('паровоз'))
     #print(enc.word2token('аз'))
     #t.train(n_frac=0.8)
-    #t.test(2045,2048)
-    #a.process_from_texts_file([32,33])
-    t.vizualize2d(n_frac=0.01)
-    ##a.vizualize2d()
-    ##a.train()
+    #t.test(2000,2048)
+    #a.process_from_texts_file([35,35])
+    #t.vizualize2d(n_frac=0.01)
+    a.vizualize2d()
+    a.train()
 
 
 
@@ -48,7 +50,8 @@ def main():
     #                       'глокая','куздра','штеко','будланула','бокра','и','кудрячит','бокрёнка']))
 
     X_predict=['съеште', 'школа', 'господина', 'приехал',
-     'глокая', 'куздра', 'штеко', 'будланула', 'бокра', 'и', 'кудрячит', 'бокрёнка']
+     'глокая', 'куздра', 'штеко', 'будланула', 'бокра', 'и', 'кудрячит', 'бокрёнка',
+        'он', 'видел', 'их', 'семью', 'своими',  'глазами']
     #X_predict=['символ']
     y_predict=t.pos_word_by_ml(X_predict)
 
