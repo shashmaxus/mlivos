@@ -109,6 +109,23 @@ class OpenCorpus:
         else:
             return dfgram
 
+    # Return authors dataset
+    def authors(self, mode=0):
+        env = Environment()
+        df = pd.DataFrame()
+        filename = env.filename_authors_csv()
+        try:
+            df = pd.read_csv(filename, index_col='idauthor', encoding='utf-8')
+        except:
+            env.debug(1, ['Failed to load authors CSV file', filename])
+        else:
+            env.debug(1, ['Load authors CSV file', filename])
+        if mode == 1:
+            return df.to_dict().get('name')
+        else:
+            return df
+
+
     #Read corpus XML files and writes to CSV
     def corpus_xml2csv(self, num=1, persistent=True):
         env = Environment()

@@ -21,25 +21,15 @@ class Word_Encoder:
         a_result[9] = self.s_encode(s_word[-3:])  # ts3
         a_result[4] = s_word[:2]  # p2
         a_result[10] = self.s_encode(s_word[:2])  # tp2
-        a_result[5] = s_word[:3]  # p2
+        a_result[5] = s_word[:3]  # p3
         a_result[11] = self.s_encode(s_word[:3])  # tp3
         return a_result
 
     def word2token(self, s):
         t_start = timer()
         env = Environment()
-        #a_result=pd.Series([s,'','','','','',0,0,0,0,0,0])
-        #a_result=self.s2token(0, a_result)
-        #bgm_columns_i = env.bgm_columns_list(mode=0)
         bgm_columns = env.bgm_columns_list(mode=1)
         n_shift = 5
-        #a_result=pd.Series([])
-        #a_result[len(a_result)] = s
-        #a_result[len(a_result)] = len(s) #nlen
-        #a_result[len(a_result)] = self.s_encode(s[-2:])  # ts2
-        #a_result[len(a_result)] = self.s_encode(s[-3:])  # ts3
-        #a_result[len(a_result)] = self.s_encode(s[2:])  # tp2
-        #a_result[len(a_result)] = self.s_encode(s[3:])  # tp3
 
         a_result=np.zeros(len(bgm_columns)+n_shift)
         a_result[0] = len(s)

@@ -1,4 +1,7 @@
+import numpy as np
 import pandas as pd
+import nltk
+from itertools import zip_longest
 
 class Environment:
 
@@ -9,9 +12,11 @@ class Environment:
     a_bgm_excluded = []
     di_bgm_byletters = {}
     di_bgm_byfeatures = {}
+    analyzer_max_words = 1000000 #Максимальное число слов в документе, которые могут входить в одну часть (chunk)
 
     def __init__(self):
         if len(Environment.a_bgm_top)==0:
+            Environment.configure_nltk_path()
             Environment.di_bgm_byletters, Environment.di_bgm_byfeatures = Environment.bgm_di_letters() #max features
             Environment.n_bgm_features, Environment.a_bgm_top, Environment.a_bgm_rare = Environment.bgm_stat(n_penalty_top=0.05, n_penalty_rare=0.05)
             Environment.a_bgm_excluded.extend(Environment.a_bgm_top)
@@ -58,6 +63,9 @@ class Environment:
     def filename_texts_csv(self):
         return "c:/prj/mlivos_data/db/texts_train.csv"
 
+    def filename_predict_csv(self):
+        return "c:/prj/mlivos_data/db/texts_test.csv"
+
     def filename_corpus_xml(self, num):
         return "c:/prj/corpus/annot/%d.xml" % (num,)
 
@@ -81,6 +89,11 @@ class Environment:
 
     def cache_ml_csv(self):
         return "c:/prj/mlivos_data/db/ml_cache.csv"
+
+    @staticmethod
+    def configure_nltk_path():
+        nltk.data.path.append('c:/app/nltk_data')
+        return 0
 
     def list_rus_letters(self):
         return Environment.rus_letters
@@ -161,3 +174,33 @@ class Environment:
         if mode==1:
             bgm_columns = ['bgm_l_%s' % (i) for i in range(0, n_f, 1)]
         return bgm_columns
+
+    @staticmethod
+    # Create a function called "chunks" with two arguments, l and n:
+    def chunks(l, n):
+        for i in range(0, n):
+            yield l[i::n]
+
+    @staticmethod
+    def model_performance_plot(predictions, targets, title):
+        # Get min and max values of the predictions and targets.
+        min_val = max(max(predictions), max(targets))
+        max_val = min(min(predictions), min(targets))
+        # Create dataframe with predicitons and targets.
+        performance_df = pd.DataFrame({"target": targets})
+        performance_df["predict"] = predictions
+        print(performance_df.head())
+
+        # Plot data
+        sns.jointplot(y="target", x="predict", data=performance_df, kind="reg", height=7)
+        plt.plot([min_val, max_val], [min_val, max_val], 'm--')
+        plt.title(title, fontsize=9)
+        plt.show()
+
+    @staticmethod
+    def downcast_dtypes(df):
+        float_cols = [c for c in df if df[c].dtype == "float64"]
+        int_cols = [c for c in df if df[c].dtype in ["int64", "int32"]]
+        df[float_cols] = df[float_cols].astype(np.float32)
+        df[int_cols] = df[int_cols].astype(np.int16)
+        return df

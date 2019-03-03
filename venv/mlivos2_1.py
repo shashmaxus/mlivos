@@ -1,4 +1,6 @@
 import pandas as pd
+import nltk
+
 from common import Environment
 from corpus import OpenCorpus
 from postagger import POSTagger
@@ -6,19 +8,23 @@ from analyzer import mlAnalyzer
 from sharedsvc import Word_Encoder
 
 def main():
+    pd.set_option("display.max_columns", 100)
+    pd.set_option('display.width', 1000)
+
     env = Environment()
     c = OpenCorpus()
     t = POSTagger()
     a = mlAnalyzer()
     enc = Word_Encoder()
-    #c.dict_xml2csv(lines=10000)
-
+    #c.dict_xml2csv(lines=100000)
     #c.grammemes_xml2csv()
     #c.vocabulary_from_corpus(1,1000)
     g = pd.DataFrame()
     g = c.grammemes()
     #dg = g.to_dict().get('name')
-    dg = c.grammemes(mode=1)
+    dg = c.grammemes(mode=1) #grammemes by id
+    da = c.authors(mode=1) # authors by id
+
     #print(dg)
     #print(p.head())
     #for i in range(2015,3000):
@@ -40,9 +46,20 @@ def main():
     #t.train(n_frac=0.8)
     #t.test(2000,2048)
     #a.process_from_texts_file([35,35])
+    #arrt = [2, 45, 43, 44, 42, 40, 41, 46, 36, 37, 38, 34]
+    #arrt = [2]
+    #for i in range (31,48):
+    #for i in arrt:
+    #    a.process_from_texts_file([i])
     #t.vizualize2d(n_frac=0.01)
-    a.vizualize2d()
-    a.train()
+    #nltk.download()
+    #a.vizualize2d()
+    #a.model_train()
+    #return 0
+    #y = a.predict([0, 1, 2, 3, 4])
+    y = a.predict([2])
+    for i in y:
+        print('idtext=%s' % i, da.get(i))
 
 
 
