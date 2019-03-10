@@ -56,7 +56,7 @@ class mlAnalyzer:
         n_words_count = len(tokens_words) #Количество слов в тексте
         n_sent_count = len(tokens_sent) #Количество предложений в тексте
 
-        #Средняя длина предложения
+        #Средняя длина предложения в словах
         sent_len = np.zeros(n_sent_count)
         for i in range (0, n_sent_count):
             sent_l1 = tokenizer.tokenize(tokens_sent[i])
@@ -91,12 +91,7 @@ class mlAnalyzer:
 
             #Собственно обработка текста
             df_add = self.analyze_text(dfres.columns, text, index, idauthor, name, file_txt) #Analyze text, get Series
-            #dfres = dfres.append(df_add, ignore_index=True) #Добавляем к файлу результатов
-            #dfres.reset_index(drop = True, inplace = True)
             df_add.reset_index(drop = True, inplace = True)
-            #df_add.index.name = 'idstat'
-            #dfres = pd.concat([dfres, df_add], ignore_index=True) #Добавляем к файлу результатов
-            # dfres = dfres.append(df_add, ignore_index=True) #Добавляем к файлу результатов
             dfres = dfres.append(df_add, ignore_index=True) #Добавляем к файлу результатов
             dfres.reset_index(drop = True, inplace = True)
             dfres.index.name = 'idstat'
@@ -238,8 +233,9 @@ class mlAnalyzer:
 
     #Prepare data for machine learning algoritms
     def model_prepare_data(self, df, mode = 'train'):
+        env = Environment()
         data = df.copy()
-        data.drop(columns=['file', 'idchunk'], inplace=True)
+        data.drop(columns=['file', 'idchunk','predict'], inplace=True)
 
         columns = data.columns
 
@@ -258,6 +254,20 @@ class mlAnalyzer:
         if mode == 'train':
             y = data['idauthor']
         X = data.drop(columns = columns2drop)
+
+        #Add PCA features
+        n_components = 2
+        pca_cols2drop = ['sentence_mean', 'uniq_per_words', 'words_uniq_per_sentense']
+        if mode == 'train': #формируем матрицу признаков
+            pca_pos = PCA(n_components = n_components)
+            X_new = pca_pos.fit_transform(X.drop(columns = pca_cols2drop), y)
+            print('PCA ratio %s components quality: %s' % (n_components, round(np.sum(pca_pos.explained_variance_ratio_),4)), pca_pos.explained_variance_ratio_)
+            pickle.dump(pca_pos, open(env.filename_model_texts_pca(), 'wb'))
+        if mode == 'test': #Переводим признаки в пространство признаков на основе ранее созданной матрицы
+            pca_pos = pickle.load(open(env.filename_model_texts_pca(), 'rb'))
+            X_new = pca_pos.transform(X.drop(columns = pca_cols2drop))
+        for i in range (0, n_components):
+            X['pca_%s' % i] = X_new[:, i]
         return y, X
 
     #Train model
@@ -265,15 +275,6 @@ class mlAnalyzer:
         env = Environment()
         data = self.stat()
         t_start = timer()
-        #print(data)
-        #values = data.values
-        #X = values[:, 7:]
-        #y = values[:, 1]
-        #y = y.astype('int')
-        #y = data['idauthor'].values
-        #data.drop(columns=['idtext', 'idchunk', 'idauthor', 'author', 'name', 'file', 'words_all', 'words_chunk'],
-        #          inplace=True)
-        #X = data.values
         y, X = self.model_prepare_data(data)
 
         seed = 241
@@ -285,7 +286,7 @@ class mlAnalyzer:
         kf = KFold(n_splits = n_splits, shuffle = True, random_state = seed)
         #clf = DecisionTreeClassifier(criterion='gini', random_state=seed)
         #clf = GradientBoostingClassifier(n_estimators=50)
-        model = xgb.XGBClassifier(n_estimators = 200, max_depth = 8, colsample = 1, subsample = 1)
+        model = xgb.XGBClassifier(n_estimators = 200, max_depth = 8, colsample = 1, subsample = 1, seed = seed)
         cv_scores = cross_val_score(model, X, y, cv = kf)
 
         #eval
@@ -301,57 +302,149 @@ class mlAnalyzer:
         #ev_mean = np.array(ev_scores['validation_0']['mlogloss']).mean()
         ev_mean = np.array(ev_scores['validation_0'][f_eval]).mean()
 
+        #Посмотрим важность признаков в модели
         #print(model.feature_importances_)
+        xgb.plot_importance(model)
+        #plt.bar(range(len(model.feature_importances_)), model.feature_importances_)
+        plt.show()
 
-        #clf.fit(X, y)
+        #Обучаем модель на всех данных
+        model.fit(X, y, verbose=False)
+        #Сохраняем модель на диск
+        pickle.dump(model, open(env.filename_model_texts(), 'wb'))
+
         #print('CV', cv_scores, 'EV', ev_scores)
         print('Cross-validation: mean', cv_mean, 'eval_set mean', ev_mean)
         return model
 
-    def model_predict(self, df):
-        y, X = self.model_prepare_data(df)
-        model = self.model_train()
+    def model_predict(self, df, b_retrain = False):
+        env = Environment()
+        y, X = self.model_prepare_data(df, mode='test')
+        if b_retrain:
+            model = self.model_train() #Если хотим для кажжого теста вновь тренировать модель
+        else:
+            #Загружаем ранее тренированную модель с диска
+            model = pickle.load(open(env.filename_model_texts(), 'rb'))
+        #Предсказываем
         y = model.predict(X)
         return y
 
     #Predict
-    def predict(self, aidtext):
+    def predict(self, aidtext, b_makestat = False):
         env = Environment()
+
+        # Открываем файл со статистикой по тестовым текстам
+        df_stat = pd.read_csv(env.filename_stat_test_csv(), index_col='idstat', encoding='utf-8')  # Статистика по тстовым текстам
+
         df_texts = pd.read_csv(env.filename_predict_csv(), index_col='idtext', encoding='utf-8')  # Реестр текстов
         mask = df_texts.index.isin(aidtext)
         df_texts = df_texts[mask]
+
         columns = ['idtext', 'idchunk', 'idauthor', 'author', 'name', 'file', \
                   'words_all', 'words_chunk', 'sentences_all', 'sentence_mean', \
                   'words_uniq','uniq_per_words', \
                   'NOUN','ADJF','ADJS','COMP','VERB','INFN','PRTF','PRTS','GRND','NUMR',\
                   'ADVB','NPRO','PRED','PREP','CONJ','PRCL','INTJ']
         y_result = []
-        for index, row in df_texts.iterrows():  # Для каждого текста, который надо обработать
-            file_txt = df_texts.at[index, 'filename']
-            # Read text file
-            env.debug(1, ['Analyzer','predict','START file TXT:', file_txt])
-            t_start = timer()
-            file = codecs.open(file_txt, "r", "utf_8_sig")
-            text = file.read().strip()
-            file.close()
-            # Автор в тестовой выборке вообще говоря нет
-            #idauthor = df_texts.at[index, 'idauthor']  # Автор
-            idauthor = 0
-            name = df_texts.at[index, 'name']  # Название
 
-            # Собственно обработка текста
-            df_add = self.analyze_text(columns, text, index, idauthor, name,
-                                       file_txt)  # Analyze text, get Series
-            #print(df_add)
-            y_res = self.model_predict(df_add)
-            #print(y_res)
-            y_result.append(y_res[0])
-        return y_result
+        #Если необходимо подготовить статистику по тестовым текстам
+        if b_makestat:
+            for index, row in df_texts.iterrows():  # Для каждого текста, который надо обработать
+                file_txt = df_texts.at[index, 'filename']
+                # Read text file
+                env.debug(1, ['Analyzer','predict','START file TXT:', file_txt])
+                t_start = timer()
+                file = codecs.open(file_txt, "r", "utf_8_sig")
+                text = file.read().strip()
+                file.close()
+                # Автор в тестовой выборке вообще говоря нет
+                idauthor = df_texts.at[index, 'idauthor']  # Автор
+                #idauthor = 0
+                name = df_texts.at[index, 'name']  # Название
 
-    def vizualize2d(self):
+                # Собственно обработка текста
+                df_add = self.analyze_text(columns, text, index, idauthor, name,
+                                           file_txt)  # Analyze text, get Series
+                #print(df_add)
+                df_add.reset_index(drop = True, inplace = True)
+                df_stat = df_stat.append(df_add, ignore_index=True) #Добавляем к файлу результатов
+                df_stat.reset_index(drop = True, inplace = True)
+                df_stat.index.name = 'idstat'
+                t_end = timer()
+                env.debug(1, ['END file TXT:', file_txt, 'time:', env.job_time(t_start, t_end)])
+            #df_stat теперь содержит информацию о всех тестовых текстах, которые хотели обработать
+            #Указываем верный тип для целочисленных колонок
+            int_cols = ['idtext', 'idchunk', 'idauthor', 'words_all', 'words_chunk', 'sentences_all', 'words_uniq']
+            for col in int_cols:
+                df_stat[col] = df_stat[col].astype(int)
+            # Сохраняем результат на диск
+            df_stat.to_csv(env.filename_stat_test_csv(), encoding='utf-8')
+        #Статистика готова
+
+        # Открываем файл со статистикой по тестовым текстам
+        df_stat = pd.read_csv(env.filename_stat_test_csv(), index_col='idstat', encoding='utf-8')  # Статистика по тстовым текстам
+        #mask = df_stat.index.isin(aidtext)
+        #df_stat2predict = df_stat[mask]
+        #Предсказываем авторов
+        y_res = self.model_predict(df_stat.loc[aidtext])
+        #print(y_res)
+        df_stat.loc[aidtext, 'predict'] = y_res
+        #print(df_stat)
+        #y_result.append(y_res[0])
+        #Сохраняем измененный файл с предсказаниями
+        df_stat.to_csv(env.filename_stat_test_csv(), encoding='utf-8')
+        return y_res #Возвращаем предсказания
+
+    def get_texts_stat(self, mode = 'train'):
+        # Готовим данные
+        env = Environment()
+        if mode == 'train':
+            file_res = env.filename_results_csv()
+        if mode == 'test':
+            file_res = env.filename_stat_test_csv()
+        authors = pd.read_csv(env.filename_authors_csv(), index_col='idauthor', encoding='utf-8')
+
+        data = pd.read_csv(file_res, index_col='idstat', encoding='utf-8')
+        data.drop(columns=['file', 'idchunk'], inplace=True)
+        columns = data.columns
+
+        group = data.groupby(['idtext', 'idauthor', 'author', 'name'])
+        group = group.agg({'words_all': ['mean'],
+                           'words_chunk': ['mean'],
+                           'sentences_all': ['mean'],
+                           'sentence_mean': ['mean'],
+                           'words_uniq': ['mean'],
+                           'uniq_per_words': ['mean'],
+                           'NOUN': ['mean'],
+                           'ADJF': ['mean'],
+                           'ADJS': ['mean'],
+                           'COMP': ['mean'],
+                           'VERB': ['mean'],
+                           'INFN': ['mean'],
+                           'PRTF': ['mean'],
+                           'PRTS': ['mean'],
+                           'GRND': ['mean'],
+                           'NUMR': ['mean'],
+                           'ADVB': ['mean'],
+                           'NPRO': ['mean'],
+                           'PRED': ['mean'],
+                           'PREP': ['mean'],
+                           'CONJ': ['mean'],
+                           'PRCL': ['mean'],
+                           'INTJ': ['mean'],
+                           'predict' : ['sum']})
+        group.columns = columns[4:]
+        group.reset_index(inplace=True)
+        data = pd.merge(group, authors, on='idauthor', how='left', suffixes=('', '_author'))
+        return data
+
+    def vizualize2d(self, mode='train'):
         n_components = 2
         env = Environment()
-        file_res = env.filename_results_csv()
+        if mode == 'train':
+            file_res = env.filename_results_csv()
+        if mode == 'test':
+            file_res = filename_stat_test_csv()
         file_authors = env.filename_authors_csv()
         data = pd.read_csv(file_res, index_col='idstat', encoding='utf-8')
 

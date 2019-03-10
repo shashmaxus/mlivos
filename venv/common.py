@@ -51,11 +51,20 @@ class Environment:
     def filename_model_tree(self):
         return "c:/prj/mlivos_data/model/posmodel.tree"
 
+    def filename_model_texts(self):
+        return "c:/prj/mlivos_data/model/model.texts"
+
+    def filename_model_texts_pca(self):
+        return "c:/prj/mlivos_data/model/model.texts.pca"
+
     def filename_scaler(self):
         return "c:/prj/mlivos_data/model/scaler"
 
     def filename_results_csv(self):
         return "c:/prj/mlivos_data/db/results.csv"
+
+    def filename_stat_test_csv(self):
+        return "c:/prj/mlivos_data/db/stat_test.csv"
 
     def filename_authors_csv(self):
         return "c:/prj/mlivos_data/db/authors.csv"
@@ -86,6 +95,12 @@ class Environment:
 
     def filename_stat_pos_tokenz_csv(self):
         return "c:/prj/mlivos_data/temp/stat_pos_tokenz.csv"
+
+    def path_templates(self):
+        return "c:/prj/mlivos_data/templates/"
+
+    def filename_global_report_html(self):
+        return "c:/prj/mlivos_data/reports/global_report.html"
 
     def cache_ml_csv(self):
         return "c:/prj/mlivos_data/db/ml_cache.csv"

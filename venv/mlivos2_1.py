@@ -6,6 +6,7 @@ from corpus import OpenCorpus
 from postagger import POSTagger
 from analyzer import mlAnalyzer
 from sharedsvc import Word_Encoder
+from reports import Reporter
 
 def main():
     pd.set_option("display.max_columns", 100)
@@ -16,6 +17,7 @@ def main():
     t = POSTagger()
     a = mlAnalyzer()
     enc = Word_Encoder()
+    r = Reporter()
     #c.dict_xml2csv(lines=100000)
     #c.grammemes_xml2csv()
     #c.vocabulary_from_corpus(1,1000)
@@ -54,24 +56,31 @@ def main():
     #t.vizualize2d(n_frac=0.01)
     #nltk.download()
     #a.vizualize2d()
+    # a.vizualize2d(mode='test')
     #a.model_train()
     #return 0
     #y = a.predict([0, 1, 2, 3, 4])
-    y = a.predict([2])
-    for i in y:
-        print('idtext=%s' % i, da.get(i))
-
-
+    #y = a.predict([0, 1, 2, 3, 4])
+    #print(a.predict([0,1, 2,3,4], b_makestat=True))
+    #for i in y:
+    #    print('idtext=%s' % i, da.get(i))
+    text2predict = [4]
+    #y = a.predict(text2predict)  # предсказать - указать номер текста
+    #j = 0
+    #for i in y:
+    #    print('idtext=%s' % text2predict[j], 'Автор=%s (%s)' % (i, da.get(i)))
+    #    j = j + 1
 
     #predict=(t.pos_word_by_voc(['съеште', 'школа','господина','приехал',
     #                       'глокая','куздра','штеко','будланула','бокра','и','кудрячит','бокрёнка']))
 
-    X_predict=['съеште', 'школа', 'господина', 'приехал',
-     'глокая', 'куздра', 'штеко', 'будланула', 'бокра', 'и', 'кудрячит', 'бокрёнка',
-        'он', 'видел', 'их', 'семью', 'своими',  'глазами']
+    #X_predict=['съеште', 'школа', 'господина', 'приехал',
+    # 'глокая', 'куздра', 'штеко', 'будланула', 'бокра', 'и', 'кудрячит', 'бокрёнка',
+    #    'он', 'видел', 'их', 'семью', 'своими',  'глазами']
     #X_predict=['символ']
-    y_predict=t.pos_word_by_ml(X_predict)
+    #y_predict=t.pos_word_by_ml(X_predict)
 
-    print(['%s/%s' % (X_predict[i],dg.get(y_predict[i])) for i in range(0,len(y_predict))])
+    #print(['%s/%s' % (X_predict[i],dg.get(y_predict[i])) for i in range(0,len(y_predict))])
+    r.make_report()
 
 main()
