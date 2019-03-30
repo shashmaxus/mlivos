@@ -21,6 +21,8 @@ from sklearn import preprocessing
 
 from sklearn.model_selection import KFold
 from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.manifold import MDS
@@ -182,8 +184,8 @@ class POSTagger:
         t_start = timer()
         if dftokenz.empty:
             dftokenz = self.tokenz()
-        if n_frac<1:
-            dftokenz = dftokenz.sample(frac=n_frac)
+        if n_frac < 1:
+            dftokenz = dftokenz.sample(frac = n_frac)
         env.debug(1, ['Transforming to tokenz: START %s words' % dftokenz.shape[0]])
 
         gmask = dftokenz.groupby(['gram'])
@@ -286,10 +288,10 @@ class POSTagger:
         return df_tokenz
 
     #Train model
-    def train(self, df = pd.DataFrame(), b_cv = True, n_splits = 5, b_smoketest = True, n_frac=1):
+    def train(self, df = pd.DataFrame(), validation = 'eval', n_splits = 5, b_smoketest = True, n_frac = 1):
         env = Environment()
         enc = Word_Encoder()
-        df_train=df
+        df_train = df
         bgm_columns = env.bgm_columns_list(mode=1)
         drop_columns = ['word', 'gram', 's_suffix2', 's_suffix3',
                         's_prefix2', 's_prefix3', 'n_token'] #, 'bgm_l_None'
@@ -298,21 +300,24 @@ class POSTagger:
 
         if df_train.empty:
             t_start = timer()
-            df_train=self.tokenz()
+            df_train = self.tokenz()
             t_end = timer()
             env.debug(1, ['POSTagger','train','tokenz loaded:', 'time:', env.job_time(t_start, t_end)])
 
+        env.debug(1, ['POStagger', 'train', 'All tokenz set shape %s' % df_train.shape[0]])
         t_start = timer()
         env.debug(1, ['POStagger','train','Learning: START'])
-        if n_frac<1:
-            df_train = df_train.sample(frac=n_frac)
+        if n_frac < 1:
+            df_train = df_train.sample(frac = n_frac)
+            env.debug(1, ['POStagger', 'train', 'Training tokenz set shape %s' % df_train.shape[0]])
             #print(df_train.shape)
 
         #df_train2 = df_train[bgm_columns]
         #print(df_train2.shape)
         #df_train2 = df_train2.astype({"idgram": int})
-        df_train=df_train.drop(columns=drop_columns, axis=1)
+        df_train = df_train.drop(columns = drop_columns, axis=1)
         env.debug(1, ['POStagger','Train colums: %s' % (df_train.columns.tolist())])
+        #print(df_train.columns)
 
         #df_train = df_train.drop_duplicates() #slow-slow
         #print(df_train.head())
@@ -321,30 +326,33 @@ class POSTagger:
         file_x = env.filename_xtrain_csv()
         df_train.to_csv(file_x, encoding='utf-8')
         env.debug(1, ['POStagger','train','Save X',file_x])
-        array = df_train.values
+        y = df_train['idgram'].values
+        df_train.drop(columns=['idgram'], inplace = True)
+        X = df_train.values
+        #array = df_train.values
         #print(df_train)
-        X = array[:, 1:]
+        #X = array[:, 1:]
         #Y = array[:, 0]
-        Y = df_train['idgram'].values
+
         #print(X, Y)
         #validation_size = 0.20
         seed = 241
+        frac_test_size = 0.2
 
         sc = StandardScaler()
         #Y_sc = sc.fit_transform(Y)
-
-        if b_cv: #Need cross-validation
+        t2_start = timer()
+        if validation == 'cv': #Need cross-validation
             scoring = 'accuracy'
             # scoring = 'f1_samples'
-            kf = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
-            t2_start = timer()
+            kf = KFold(n_splits = n_splits, shuffle = True, random_state = seed)
             if True: #Decision tree
                 env.debug(1, ['Tree cross-validation'])
                 # clf = DecisionTreeClassifier(criterion='gini', random_state=seed)  # 0.79
                 # clf = KNeighborsClassifier(n_neighbors=230)
-                clf = DecisionTreeClassifier(criterion='entropy', random_state=seed)  # 0.81
+                model = DecisionTreeClassifier(criterion='entropy', random_state = seed)  # 0.81
                 env.debug(1, ['Calculate cross_val_score. Splits=%s' % (n_splits)])
-                scores = cross_val_score(clf, X, Y, cv=kf)
+                scores = cross_val_score(model, X, y, cv = kf)
                 print('DTree scores:',scores.mean(),'raw',scores)
 
             if False: #Logistic regression
@@ -377,26 +385,29 @@ class POSTagger:
                     scores = cross_val_score(clf, X, Y, cv=kf)
                     print(scores)
 
-            if False: #XGBoost
-                env.debug(1, ['XGboost cross-validation'])
-                asteps = [2]  # n_estimators
-                # asteps=[100] #RandomForest
-                for i in asteps:
-                    clf = xgb.XGBClassifier(n_estimators=i, max_depth=6)  # , max_features='sqrt'
-                    env.debug(1, ['POStagger','train','Calculate cross_val_score. Splits=%s Estimators=%s' % (n_splits, i)])
-                    scores = cross_val_score(clf, X, Y, cv=kf)
-                    print(scores)
 
-            #X_train, X_validation, Y_train, Y_validation = model_selection.train_test_split(X, Y, test_size=validation_size,
-            #
-            #
-            #                                                                           random_state=seed)
+        if validation == 'eval':
+            # eval
+            model = xgb.XGBClassifier(n_estimators = 20, max_depth = 4, colsample = 1, subsample = 1, seed = seed)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = frac_test_size, random_state = seed, shuffle = True)
+            eval_set = [(X_train, y_train), (X_test, y_test)]
+            # print(eval_set)
+            f_eval = 'merror'
+            # f_eval = 'mlogloss'
+            model.fit(X_train, y_train, eval_metric = f_eval, eval_set = eval_set, verbose = False, early_stopping_rounds = 10)
+            ev_scores = model.evals_result()
+            ev_mean = np.array(ev_scores['validation_0'][f_eval]).mean()
+            #print(model.feature_importances_)
+            print(ev_mean, ev_scores)
+            xgb.plot_importance(model)
+            plt.show()
         t2_end = timer()
         t_end = timer()
         env.debug(1, ['CV completed:', 'time:', env.job_time(t_start, t_end)])
 
-        #Training
-        X_train, Y_train = X, Y
+        #Training на всех данных
+        X_train, y_train = X, y
+
         # model = SVC()
         # model= DecisionTreeClassifier() #79
         # model= LinearDiscriminantAnalysis() #47
@@ -414,24 +425,24 @@ class POSTagger:
 
         t_start = timer()
         env.debug(1, ['Training: START'])
-        clf.fit(X_train, Y_train)
+        model.fit(X_train, y_train)
         t_end = timer()
         env.debug(1, ['Training: END',env.job_time(t_start, t_end)])
 
         pickle.dump(sc, open(env.filename_scaler(), 'wb'))
-        pickle.dump(clf, open(env.filename_model_tree(), 'wb'))
+        pickle.dump(model, open(env.filename_model_tree(), 'wb'))
 
         # Smoke test
         if b_smoketest:
             X_smoke_predict = ['съеште', 'ещё', 'этих', 'мягких',
                          'французских', 'булок']
             a_smoke = np.array([enc.word2token(elem) for elem in X_smoke_predict])
-            y_predictions = clf.predict(a_smoke[:, 0:])
-            y_predictions_proba = clf.predict(a_smoke[:, 0:])
+            y_predictions = model.predict(a_smoke[:, 0:])
+            y_predictions_proba = model.predict(a_smoke[:, 0:])
             #print(y_predictions)
             print('Prediction',list(zip(X_smoke_predict, y_predictions)))
             print('Proba', list(zip(X_smoke_predict, y_predictions_proba)))
-        return clf
+        return model
 
     #test on corpus file
     def test(self, n_min=1, n_max=1):

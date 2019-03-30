@@ -4,6 +4,7 @@ import pickle
 import time
 import string, re
 import codecs
+import math
 
 import nltk
 from nltk.tokenize import sent_tokenize, word_tokenize, RegexpTokenizer
@@ -20,7 +21,7 @@ import xgboost as xgb
 
 from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import train_test_split
-
+from sklearn.metrics import r2_score
 
 from common import Environment
 from sharedsvc import Word_Encoder
@@ -43,31 +44,8 @@ class mlAnalyzer:
         #return re.compile(r"([^\w_\u2019\u2010\u002F\u0027-]|[+])")
         return (r'\w+')
 
-    #Prepare text
-    def preprocessor(self, text):
-        env = Environment()
-        t_start = timer()
-        text2 = text.lower()
-        env.debug(1, ['Analyzer','preprocessor','START Preprocessing:'])
-        tokenizer = RegexpTokenizer(self.word_tokenizers_custom())
-        tokens_words = tokenizer.tokenize(text2) #Слова текста
-        tokens_sent = sent_tokenize(text2) #Предложения - пока не используются в нашем проекте
-
-        n_words_count = len(tokens_words) #Количество слов в тексте
-        n_sent_count = len(tokens_sent) #Количество предложений в тексте
-
-        #Средняя длина предложения в словах
-        sent_len = np.zeros(n_sent_count)
-        for i in range (0, n_sent_count):
-            sent_l1 = tokenizer.tokenize(tokens_sent[i])
-            sent_len[i] = len(sent_l1)
-        n_sent_len_mean = sent_len.mean() #средняя длина предложения в словах
-        t_end = timer()
-        env.debug(1, ['Preprocessed:', 'time:', env.job_time(t_start, t_end)])
-        return (n_sent_count, n_sent_len_mean, n_words_count, tokens_words)
-
     #Process texts files
-    def process_from_texts_file(self, aidtext):
+    def process_from_texts_file(self, aidtext, mode = 'process', max_words = 0):
         env = Environment()
         file_res = env.filename_results_csv()
         dfres = pd.read_csv(file_res, index_col='idstat', encoding='utf-8') #Файл для записи статистических результатов
@@ -88,30 +66,87 @@ class mlAnalyzer:
             #Автор в обучающей выборке указанг
             idauthor = df_texts.at[index, 'idauthor'] #Автор
             name = df_texts.at[index, 'name'] #Название
+            columns = dfres.columns
+            if mode == 'process': #если необходимо собрать информацию о тексте и записать её в results
+                #Собственно обработка текста
+                df_add = self.analyze_text(columns, text, index, idauthor, name, file_txt, max_words) #Analyze text, get Series
+                df_add.reset_index(drop = True, inplace = True)
+                dfres = dfres.append(df_add, ignore_index=True) #Добавляем к файлу результатов
+                dfres.reset_index(drop = True, inplace = True)
+                dfres.index.name = 'idstat'
+                #print(dfres)
+                #return 0
 
-            #Собственно обработка текста
-            df_add = self.analyze_text(dfres.columns, text, index, idauthor, name, file_txt) #Analyze text, get Series
-            df_add.reset_index(drop = True, inplace = True)
-            dfres = dfres.append(df_add, ignore_index=True) #Добавляем к файлу результатов
-            dfres.reset_index(drop = True, inplace = True)
-            dfres.index.name = 'idstat'
-            #print(dfres)
-            #return 0
+            if mode == 'chunk_size': # если необходимо определить размер chunk
+                n_chunk_size = self.validate_chunk_size(columns, text, index, idauthor, name, file_txt)
             t_end = timer()
             env.debug(1, ['END file TXT:', file_txt, 'time:', env.job_time(t_start, t_end)])
             # print(dfres.head())
         #Сохраняем результат на диск
-        #dfres = dfres.reset_index(drop=True)
-        int_cols = ['idtext', 'idchunk', 'idauthor', 'words_all', 'words_chunk', 'sentences_all', 'words_uniq']
-        for col in int_cols:
-            dfres[col] = dfres[col].astype(int)
-        #dfres = env.downcast_dtypes(dfres)
-        dfres.to_csv(file_res, encoding='utf-8')
+        if mode == 'process':
+            #dfres = dfres.reset_index(drop=True)
+            int_cols = ['idtext', 'idchunk', 'idauthor',
+                        'sentences_text', 'words_text',
+                        'sentences_chunk', 'words_chunk',  'words_uniq_chunk']
+            for col in int_cols:
+                dfres[col] = dfres[col].astype(int)
+            #dfres = env.downcast_dtypes(dfres)
+            dfres.to_csv(file_res, encoding='utf-8')
 
+    # Prepare text
+    def preprocessor(self, text, max_words = 0):
+        env = Environment()
+        t_start = timer()
+        text2 = text.lower()
+        env.debug(1, ['Analyzer', 'preprocessor', 'START Preprocessing:'])
+        tokenizer = RegexpTokenizer(self.word_tokenizers_custom())
+        tokens_words = tokenizer.tokenize(text2)  # Слова текста
+        tokens_sent = sent_tokenize(text2)  # Предложения - пока не используются в нашем проекте
 
+        n_words_count = len(tokens_words)  # Количество слов в тексте
+        n_sent_count = len(tokens_sent)  # Количество предложений в тексте
+        n_sent_len_mean = n_words_count / n_sent_count  # Средняя длина предложения в словах
+
+        #Делим текст на части - chunks
+        awords = [] #Массив
+        # Если документ большой, разделяем его на несколько частей (chunks) и считаем
+        # статистику для каждого в отдельности.
+        # Это нам позволит имея небольшое число объёмных документов корректно обучить модель
+        if (max_words > 0):
+            n_sent_chunk = int(max_words // n_sent_len_mean) #Сколько предложение в 1 chunks содержащее max_words
+
+            print('n_sent_chunk', n_sent_chunk)
+            #подбираем, чтобы текст был разделен равномерно
+            i_chunks = 1
+            tmp_sent_chunk = n_sent_count
+            while tmp_sent_chunk > n_sent_chunk:
+                i_chunks = i_chunks + 1
+                tmp_sent_chunk = int (math.ceil(n_sent_count // i_chunks) + (n_sent_count % i_chunks))
+
+            n = 0
+            n_sent_chunk = tmp_sent_chunk #итоговое значение сколько предложений пойдет в chunk
+            print('tmp_sent_chunk', tmp_sent_chunk)
+
+            while n < n_sent_count:
+                #print(n, n_sent_chunk)
+                asents = tokens_sent[n : n + n_sent_chunk] #Предложения от n до n+chunk
+                #print(asents)
+                a_sent_words = [] #слова текущей группы предложений
+                for sent in asents:
+                    words = tokenizer.tokenize(sent)
+                    a_sent_words.extend(words)
+                #print(a_sent_words)
+                awords.append([n_sent_count, n_words_count, len(a_sent_words)/len(asents), len(asents), len(a_sent_words), a_sent_words])
+                n = n + n_sent_chunk
+        else:
+            awords.append([n_sent_count, n_words_count, n_sent_len_mean, len(tokens_sent), len(tokens_words), tokens_words])
+        #print(awords)
+        t_end = timer()
+        env.debug(1, ['Preprocessed:', 'time:', env.job_time(t_start, t_end)])
+        return awords #Массив со словами и статистикой
 
     # Analyze text
-    def analyze_text(self, columns, text_to_analyze, index = 0, idauthor = 0, name = '', file_txt=''):
+    def analyze_text(self, columns, text_to_analyze, index = 0, idauthor = 0, name = '', file_txt='', max_words = 0):
         env = Environment()
         t_start = timer()
         env.debug(1, ['Analyzer', 'analyze_text', 'START file TXT: %s' % file_txt])
@@ -123,51 +158,52 @@ class mlAnalyzer:
         #Информация об авторах
         authors = pd.read_csv(file_authors, index_col='idauthor', encoding='utf-8')
 
-        dfres = pd.DataFrame()
+        dfres = pd.DataFrame() #Пустой dataframe для сохранения результат
 
         #Preprocessing: выполнить прдварительную обработку текста
-        n_sent_count, n_sent_len_mean, n_words_count, tokens_words = self.preprocessor(text_to_analyze)
-        #на выходе получили число предложений, число слов в тексте, массив со словами
-        env.debug(1, ['Analyzer', 'analyze_text', 'get %s words in %s sentences' % (n_words_count, n_sent_count)])
+        #max_words = 6000
+        achunks = self.preprocessor(text_to_analyze, max_words)
+        #print(achunks)
+        n_chunks = len(achunks)  # на сколько частей разделён текст
 
-        #Если документ большой, разделяем его на несколько частей (chunks) и считаем
-        #статистику для каждого в отдельности.
-        # Это нам позволит имея небольшое число объёмных документов корректно обучить модель
-        n_chunks = n_words_count // env.analyzer_max_words + 1 #на сколько частей будем делить
+        #на выходе получили массив, каждывй элемент которого содеоржит число предложений, число слов в тексте, массив со словами
+        env.debug(1, ['Analyzer', 'analyze_text', '%s sentences %s words in %s chunks' % (achunks[0][0], achunks[0][1], n_chunks)])
         #print(n_chunks)
-        gen_chunks =  env.chunks(tokens_words, n_chunks) #разделили
         a_text_corp = []
         id_chunk = 0
-        for a_text_words in gen_chunks:
-            #a_text_corp.append(' '.join(map(str,a_text_words)))
-            # Vectorize - каждую часть индивидуально
-            vectorizer = CountVectorizer()
+        for  chunk in achunks:
+            t_start = timer() #prepare data
+            n_sent_all = chunk[0]
+            n_words_all = chunk[1]
+            n_sent_len_mean = chunk[2]
+            n_sent_chunk = chunk[3]
+            n_words_chunk = chunk[4]
+            a_text_words = chunk[5]
+            #print(n_sent_all, n_words_all, n_sent_len_mean, n_sent_chunk, n_words_chunk, a_text_words)
+            #print(len(a_text_words))
+
+            # Vectorize - к каждой части относимся как к индивидуальному тексту
+            vectorizer = CountVectorizer(encoding='utf-8', token_pattern=r"(?u)\b\w+\b")
             #Преобразуем все слова в матрицу из одной строки (0) и множества колонок, где каждому слову соотвествует
             # колонка, а количество вхождений слова в документе - значение в этой колонке
+            #print([' '.join(map(str,a_text_words))])
             X = vectorizer.fit_transform([' '.join(map(str,a_text_words))])
-            n_words_chunk = X.sum() #Сколько всего слов в документе, который обрабатываем
-            env.debug(1, ['Analyzer', 'analyze_text', 'START process chunk %s/%s with %s words' % (id_chunk, n_chunks, n_words_chunk)])
+            #print(X)
+            n_words_chunk_check = X.sum() #Сколько всего слов в документе, который обрабатываем
+            #print(n_words_chunk, n_words_chunk_check)
+            #print(vectorizer.get_stop_words())
+
+            env.debug(1, ['Analyzer', 'analyze_text', 'START process chunk %s/%s with %s words' % (id_chunk, n_chunks-1, n_words_chunk)])
             word_freq = np.asarray(X.sum(axis=0)).ravel() #для каждого слова его суммарное число (т.к. у нас одна строка == числу в ней)
             #print(vectorizer.get_feature_names())
             #print(X)
             zl = zip(vectorizer.get_feature_names(), word_freq)  # words, count
             #print(list(zl))
 
-            t_start = timer()
-
             data_cols = ['gram', 'gram_voc', 'gram_ml']
             data = pd.DataFrame(list(zl),columns=['word', 'count'])
             for col in data_cols:
                 data[col] = ''
-            #print(data)
-
-            #a_predict = np.array([enc.word2token('')])
-            #for s_word in vectorizer.get_feature_names():
-                #a_enc_word = enc.word2token(s_word)
-                #a_predict.append(a_enc_word)
-                #a_enc_word = np.array([enc.word2token(s_word)])
-                #a_predict = np.append(a_predict, a_enc_word, axis=0)
-            #print(a_predict)
             t_end = timer()
             env.debug(1, ['Ready for POS:', 'time:', env.job_time(t_start, t_end)])
 
@@ -191,21 +227,24 @@ class mlAnalyzer:
             #print(grouped)
             #print(grouped.values.ravel())
             index_author = authors.index.get_loc(idauthor)
+            n_uniq_words = data.shape[0]
             s_chunk = pd.Series({'idtext': index,
-                                     'idchunk' : id_chunk,
-                                     'idauthor' : idauthor,
-                                     'author' : authors.at[index_author, 'shortname'],
-                                     'name' : name,
-                                     'file' : file_txt,
-                                     'words_all' : np.int64(n_words_count),
-                                     'words_chunk' : n_words_chunk,
-                                     'sentences_all' : np.int64(n_sent_count),
-                                     'sentence_mean': n_sent_len_mean,
-                                     'words_uniq' : data.shape[0],
-                                     'uniq_per_words' : round(data.shape[0] / n_words_chunk, 4)
+                                 'idchunk' : id_chunk,
+                                 'idauthor' : idauthor,
+                                 'author' : authors.at[index_author, 'shortname'],
+                                 'name' : name,
+                                 'file' : file_txt,
+                                 'sentences_text': np.int64(n_sent_all),
+                                 'words_text' : np.int64(n_words_all),
+                                 'sentence_mean': n_sent_len_mean,
+                                 'sentences_chunk': np.int64(n_sent_chunk),
+                                 'words_chunk' : np.int64(n_words_chunk),
+                                 'words_uniq_chunk' : np.int64(n_uniq_words),
+                                 'uniq_per_sent_chunk': round(n_uniq_words / n_sent_chunk, 4),
+                                 'uniq_per_words_chunk' : round(n_uniq_words / n_words_chunk, 4)
                                      })
             s_chunk = pd.concat([s_chunk, pd.Series(grouped.values.ravel())], ignore_index=True)
-
+            s_chunk = pd.concat([s_chunk, pd.Series([np.nan])], ignore_index=True)
             #print(s_chunk)
             #print(grouped)
             t_end = timer()
@@ -214,8 +253,56 @@ class mlAnalyzer:
             #dfres = env.downcast_dtypes(dfres)
             id_chunk = id_chunk + 1
         print(dfres)
+        print(columns)
         dfres.columns = columns
         return dfres
+
+    #Определяем оптимальный размер chunk
+    def validate_chunk_size(self, columns, text, index, idauthor, name, file_txt):
+        #a_chunk_sizes = [1000, 3000, 5000, 7500, 10000, 15000]
+        a_chunk_sizes = [100, 500, 1000, 3000, 5000, 6000, 7500, 9000, 10000, 15000, 20000]
+        #a_chunk_sizes = [20000]
+        cols2compare = ['NOUN', 'ADJF', 'ADJS', 'COMP', 'VERB', 'INFN', 'PRTF', 'PRTS',  #'uniq_per_sent_chunk','uniq_per_words_chunk',
+                        'GRND', 'NUMR', 'ADVB', 'NPRO', 'PRED', 'PREP', 'CONJ', 'PRCL', 'INTJ']
+        dfall = self.analyze_text(columns, text, index, idauthor, name, file_txt, max_words = 0)
+        X_orig = np.array(dfall[cols2compare].values.ravel())
+        #print(dfall)
+        #print(X_orig)
+        a_chunk_stat = []
+        for chunk in a_chunk_sizes:
+            dfchunk = self.analyze_text(columns, text, index, idauthor, name, file_txt, max_words = chunk)
+            scores = []
+            for index, row in dfchunk.iterrows():
+                k_res = np.array(row[cols2compare].values.ravel())
+                #print(X_orig, k_res)
+                #print(np.corrcoef(X_orig, k_res))
+                scores.append(r2_score(X_orig, k_res))
+            #print(dfchunk.describe().loc['mean'][cols2compare])
+            a_chunk_stat.append([chunk, dfchunk.shape[0], np.mean(scores)])
+            #print(dfchunk)
+        print(a_chunk_stat)
+
+        fig = plt.figure(figsize=(8, 8))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.set_xlabel('Кол-во слов')
+        ax.set_ylabel('Соотвествие статистике всего текста')
+        ax.set_title('Текст: %s' % name)
+        #colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
+        #          '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
+        #          '#bcbd22', '#17becf']
+        colors = ["#1f77b4", "#aec7e8", "#ff7f0e", "#ffbb78", "#2ca02c", "#98df8a", "#d62728", "#ff9896",
+                  "#9467bd", "#c5b0d5", "#8c564b", "#c49c94", "#e377c2", "#f7b6d2", "#7f7f7f", "#c7c7c7",
+                  "#bcbd22", "#dbdb8d", "#17becf", "#9edae5"]
+        i = 0
+        for stat in a_chunk_stat:
+            ax.scatter(x = stat[0],
+                       y = stat[2],
+                       c = colors[i],
+                       s = 50)
+            i = i+1;
+        ax.grid()
+
+        plt.show()
 
     # Return textsresults dataset
     def stat(self):
@@ -242,11 +329,11 @@ class mlAnalyzer:
         #idstat,idtext,idchunk,idauthor,author,name,file,words_all,words_chunk,sentences_all,sentence_mean,words_uniq,uniq_per_words,NOUN,ADJF,ADJS,COMP,VERB,INFN,PRTF,PRTS,GRND,NUMR,ADVB,NPRO,PRED,PREP,CONJ,PRCL,INTJ
 
         columns2drop = ['idtext', 'idauthor', 'author', 'name',
-                        'words_all', 'words_chunk', 'sentences_all', 'words_uniq']
+                        'sentences_text', 'words_text', 'sentences_chunk', 'words_chunk', 'words_uniq_chunk']
 
         #New features
         #Создадим новые статистические поля для помощи нашей модели
-        data['words_uniq_per_sentense'] = data['words_uniq'] / data['sentences_all'] #кол-во уникальных слов/ кол-во предложений
+        #data['words_uniq_per_sentense'] = data['words_uniq'] / data['sentences_all'] #кол-во уникальных слов/ кол-во предложений
         #data['words_uniq_3k'] = data['words_uniq'] / 3000  # кол-во уникальных слов на 3 тыс. слов
         #data['words_uniq_10k'] = data['words_uniq'] / 10000 #кол-во уникальных слов на 10 тыс. слов
 
@@ -256,8 +343,8 @@ class mlAnalyzer:
         X = data.drop(columns = columns2drop)
 
         #Add PCA features
-        n_components = 2
-        pca_cols2drop = ['sentence_mean', 'uniq_per_words', 'words_uniq_per_sentense']
+        n_components = 4
+        pca_cols2drop = ['sentence_mean', 'uniq_per_sent_chunk', 'uniq_per_words_chunk']
         if mode == 'train': #формируем матрицу признаков
             pca_pos = PCA(n_components = n_components)
             X_new = pca_pos.fit_transform(X.drop(columns = pca_cols2drop), y)
@@ -341,10 +428,11 @@ class mlAnalyzer:
         df_texts = df_texts[mask]
 
         columns = ['idtext', 'idchunk', 'idauthor', 'author', 'name', 'file', \
-                  'words_all', 'words_chunk', 'sentences_all', 'sentence_mean', \
-                  'words_uniq','uniq_per_words', \
+                   'sentences_text', 'words_text','sentence_mean', \
+                   'sentences_chunk', 'words_chunk',
+                   'words_uniq_chunk','uniq_per_sent_chunk','uniq_per_words_chunk', \
                   'NOUN','ADJF','ADJS','COMP','VERB','INFN','PRTF','PRTS','GRND','NUMR',\
-                  'ADVB','NPRO','PRED','PREP','CONJ','PRCL','INTJ']
+                  'ADVB','NPRO','PRED','PREP','CONJ','PRCL','INTJ', 'predict']
         y_result = []
 
         #Если необходимо подготовить статистику по тестовым текстам
@@ -374,7 +462,7 @@ class mlAnalyzer:
                 env.debug(1, ['END file TXT:', file_txt, 'time:', env.job_time(t_start, t_end)])
             #df_stat теперь содержит информацию о всех тестовых текстах, которые хотели обработать
             #Указываем верный тип для целочисленных колонок
-            int_cols = ['idtext', 'idchunk', 'idauthor', 'words_all', 'words_chunk', 'sentences_all', 'words_uniq']
+            int_cols = ['idtext', 'idchunk', 'idauthor', 'sentences_text', 'words_text', 'sentences_chunk', 'words_chunk', 'words_uniq_chunk']
             for col in int_cols:
                 df_stat[col] = df_stat[col].astype(int)
             # Сохраняем результат на диск
@@ -388,7 +476,7 @@ class mlAnalyzer:
         #Предсказываем авторов
         y_res = self.model_predict(df_stat.loc[aidtext])
         #print(y_res)
-        df_stat.loc[aidtext, 'predict'] = y_res
+        df_stat.loc[aidtext, 'predict'] = y_res.astype(int)
         #print(df_stat)
         #y_result.append(y_res[0])
         #Сохраняем измененный файл с предсказаниями
@@ -409,12 +497,14 @@ class mlAnalyzer:
         columns = data.columns
 
         group = data.groupby(['idtext', 'idauthor', 'author', 'name'])
-        group = group.agg({'words_all': ['mean'],
-                           'words_chunk': ['mean'],
-                           'sentences_all': ['mean'],
+        group = group.agg({'sentences_text': ['mean'],
+                           'words_text': ['mean'],
                            'sentence_mean': ['mean'],
-                           'words_uniq': ['mean'],
-                           'uniq_per_words': ['mean'],
+                           'sentences_chunk': ['mean'],
+                           'words_chunk': ['mean'],
+                           'words_uniq_chunk': ['mean'],
+                           'uniq_per_sent_chunk': ['mean'],
+                           'uniq_per_words_chunk': ['mean'],
                            'NOUN': ['mean'],
                            'ADJF': ['mean'],
                            'ADJS': ['mean'],
@@ -441,75 +531,30 @@ class mlAnalyzer:
     def vizualize2d(self, mode='train'):
         n_components = 2
         env = Environment()
-        if mode == 'train':
-            file_res = env.filename_results_csv()
-        if mode == 'test':
-            file_res = filename_stat_test_csv()
-        file_authors = env.filename_authors_csv()
-        data = pd.read_csv(file_res, index_col='idstat', encoding='utf-8')
-
-        data.drop(columns=['file', 'idchunk'], inplace=True)
+        data = self.get_texts_stat(mode = mode)
         columns = data.columns
-
-        columns2drop = ['idtext', 'idauthor', 'author', 'name',
-         'words_all', 'words_chunk', 'sentences_all', 'words_uniq', 'shortname']
-
-        group = data.groupby(['idtext','idauthor', 'author', 'name'])
-        group = group.agg({'words_all': ['mean'],
-                           'words_chunk': ['mean'],
-                           'sentences_all' : ['mean'],
-                            'sentence_mean' : ['mean'],
-                            'words_uniq' : ['mean'],
-                            'uniq_per_words' : ['mean'],
-                            'NOUN' : ['mean'],
-                            'ADJF': ['mean'],
-                            'ADJS': ['mean'],
-                            'COMP' : ['mean'],
-                            'VERB' : ['mean'],
-                            'INFN' : ['mean'],
-                            'PRTF' : ['mean'],
-                            'PRTS' : ['mean'],
-                            'GRND' : ['mean'],
-                            'NUMR' : ['mean'],
-                            'ADVB' : ['mean'],
-                            'NPRO' : ['mean'],
-                            'PRED' : ['mean'],
-                            'PREP' : ['mean'],
-                            'CONJ' : ['mean'],
-                            'PRCL' : ['mean'],
-                            'INTJ' : ['mean']})
-
         #print(data)
-        #print(group, group.info())
-        #print(group.columns)
         #print(columns)
-
-        group.columns = columns[4:]
-        group.reset_index(inplace=True)
-        #print(group)
-
-        authors = pd.read_csv(file_authors, index_col='idauthor', encoding='utf-8')
-        authors_v = authors.values
-
-
-        data = pd.merge(group, authors, on='idauthor', how='left', suffixes=('','_')).drop(columns=['name_'])
-        #print(data.columns)
+        columns2drop = ['idtext', 'idauthor', 'author', 'name',
+                        'sentences_text', 'words_text', 'sentence_mean', 'sentences_chunk', 'words_chunk',
+                        'words_uniq_chunk', 'uniq_per_sent_chunk', 'predict', 'shortname', 'name_author']
 
         y = data['idauthor'].values
-        X = data.drop(columns=columns2drop).values
-        #X = data.values
+        X = data.drop(columns = columns2drop).values
+        #print(y, X)
+        #return 0
 
         #print(data)
         #print(X, y)
-        pca=PCA(n_components=2)
+        pca = PCA(n_components = n_components)
         #pca = TSNE(n_components=2)
         X_new = pca.fit_transform(X, y)
         print('PCA ratio 2 components', pca.explained_variance_ratio_)
         #print('components', pca.components_)
         #print(X_new)
-        tdf = pd.DataFrame(data=X_new, columns=['PC1', 'PC2'])
-        finalDf = pd.concat([tdf, data[['idauthor','name']]], axis = 1)
-        #print('dataframe ', finalDf)
+        tdf = pd.DataFrame(data = X_new, columns = ['PC1', 'PC2'])
+        finalDf = pd.concat([tdf, data[['idauthor','name','shortname']]], axis = 1)
+        print('dataframe ', finalDf)
 
         mpl.style.use('default')
 
@@ -521,14 +566,19 @@ class mlAnalyzer:
         ax.set_xlabel('Component 1. Вклад '+str(round(pca.explained_variance_ratio_[0],2)), fontsize=12)
         ax.set_ylabel('Component 2. Вклад '+str(round(pca.explained_variance_ratio_[1],2)), fontsize=12)
         ax.set_title('2 component PCA. Точность '+str(round(sum(float(i) for i in pca.explained_variance_ratio_),2)), fontsize=12)
-        targets = authors.index.values
-        legends = authors_v[:, 0]
+        targets = data.idauthor.unique()
+        print(targets)
+        legends = data.shortname.unique()
+        print(legends)
         #print(targets)
         #colors = ['r', 'g', 'b']
         #colors = "bgcmykw" #without r
-        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
-                      '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
-                      '#bcbd22', '#17becf']
+        #colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
+        #              '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
+        #              '#bcbd22', '#17becf']
+        colors = ["#1f77b4", "#aec7e8", "#ff7f0e", "#ffbb78", "#2ca02c", "#98df8a", "#d62728", "#ff9896",
+                  "#9467bd", "#c5b0d5", "#8c564b", "#c49c94", "#e377c2", "#f7b6d2", "#7f7f7f", "#c7c7c7",
+                  "#bcbd22", "#dbdb8d", "#17becf", "#9edae5"]
         for target in targets:
             indicesToKeep = finalDf['idauthor'] == target
             ax.scatter(finalDf.loc[indicesToKeep, 'PC1']

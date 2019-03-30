@@ -18,7 +18,7 @@ def main():
     a = mlAnalyzer()
     enc = Word_Encoder()
     r = Reporter()
-    #c.dict_xml2csv(lines=100000)
+    #c.dict_xml2csv(lines = 600000)
     #c.grammemes_xml2csv()
     #c.vocabulary_from_corpus(1,1000)
     g = pd.DataFrame()
@@ -45,27 +45,28 @@ def main():
     #print(c.vocabulary())
     #print(enc.word2token('паровоз'))
     #print(enc.word2token('аз'))
-    #t.train(n_frac=0.8)
+    t.train(n_frac=0.4, validation='cv')
     #t.test(2000,2048)
-    #a.process_from_texts_file([35,35])
+    #a.process_from_texts_file([49], mode='chunk_size')
+    #a.process_from_texts_file([58], max_words = 8000)
     #arrt = [2, 45, 43, 44, 42, 40, 41, 46, 36, 37, 38, 34]
     #arrt = [2]
-    #for i in range (31,48):
+    #for i in range (65,71):
     #for i in arrt:
-    #    a.process_from_texts_file([i])
+        #a.process_from_texts_file([i], max_words = 8000)
     #t.vizualize2d(n_frac=0.01)
     #nltk.download()
     #a.vizualize2d()
-    # a.vizualize2d(mode='test')
+    #a.vizualize2d(mode='train')
     #a.model_train()
     #return 0
     #y = a.predict([0, 1, 2, 3, 4])
     #y = a.predict([0, 1, 2, 3, 4])
-    #print(a.predict([0,1, 2,3,4], b_makestat=True))
+    #print(a.predict([1], b_makestat=True))
     #for i in y:
     #    print('idtext=%s' % i, da.get(i))
-    text2predict = [4]
-    #y = a.predict(text2predict)  # предсказать - указать номер текста
+    #text2predict = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    #y = a.predict(text2predict, b_makestat=True)  # предсказать - указать номер текста
     #j = 0
     #for i in y:
     #    print('idtext=%s' % text2predict[j], 'Автор=%s (%s)' % (i, da.get(i)))
@@ -74,13 +75,13 @@ def main():
     #predict=(t.pos_word_by_voc(['съеште', 'школа','господина','приехал',
     #                       'глокая','куздра','штеко','будланула','бокра','и','кудрячит','бокрёнка']))
 
-    #X_predict=['съеште', 'школа', 'господина', 'приехал',
-    # 'глокая', 'куздра', 'штеко', 'будланула', 'бокра', 'и', 'кудрячит', 'бокрёнка',
-    #    'он', 'видел', 'их', 'семью', 'своими',  'глазами']
+    X_predict=['съеште', 'школа', 'господина', 'приехал',
+     'глокая', 'куздра', 'штеко', 'будланула', 'бокра', 'и', 'кудрячит', 'бокрёнка',
+        'он', 'видел', 'их', 'семью', 'своими',  'глазами']
     #X_predict=['символ']
-    #y_predict=t.pos_word_by_ml(X_predict)
+    y_predict=t.pos_word_by_ml(X_predict)
 
-    #print(['%s/%s' % (X_predict[i],dg.get(y_predict[i])) for i in range(0,len(y_predict))])
-    r.make_report()
+    print(['%s/%s' % (X_predict[i],dg.get(y_predict[i])) for i in range(0,len(y_predict))])
+    #r.make_report()
 
 main()

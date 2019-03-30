@@ -8,7 +8,10 @@ from common import Environment
 class Word_Encoder:
     def s_encode(self, s):
         #return (zlib.adler32(str.encode(s))*pow(10,-10))
-        return zlib.adler32(str.encode(s))
+        value = float(zlib.adler32(str.encode(s)))
+        while (value > 1):
+            value = value / 10
+        return value
 
     def s2token(self, index, serie):
         a_result = serie.values

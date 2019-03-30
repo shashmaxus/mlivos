@@ -30,9 +30,9 @@ class Reporter:
         group = pd.merge(data, test, on='idauthor', how='left', suffixes=('', '_test'))
         print(group)
         group = group.groupby(['idauthor', 'name_author'], as_index=False).agg({'idtext' : ['nunique'],
-                                                                'words_all' : ['sum'],
+                                                                'words_chunk' : ['sum'],
                                                                 'name_test': ['nunique'],
-                                                                'words_all_test': ['sum'],
+                                                                'words_chunk_test': ['sum'],
                                                                 'validation' : ['mean']
                                                                     })
 
