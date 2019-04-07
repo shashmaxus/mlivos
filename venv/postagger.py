@@ -388,13 +388,13 @@ class POSTagger:
 
         if validation == 'eval':
             # eval
-            model = xgb.XGBClassifier(n_estimators = 20, max_depth = 4, colsample = 1, subsample = 1, seed = seed)
+            model = xgb.XGBClassifier(n_estimators = 140, max_depth = 16, colsample = 1, subsample = 0.5, seed = seed)
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = frac_test_size, random_state = seed, shuffle = True)
             eval_set = [(X_train, y_train), (X_test, y_test)]
             # print(eval_set)
             f_eval = 'merror'
             # f_eval = 'mlogloss'
-            model.fit(X_train, y_train, eval_metric = f_eval, eval_set = eval_set, verbose = False, early_stopping_rounds = 10)
+            model.fit(X_train, y_train, eval_metric = f_eval, eval_set = eval_set, verbose = False, early_stopping_rounds = 20)
             ev_scores = model.evals_result()
             ev_mean = np.array(ev_scores['validation_0'][f_eval]).mean()
             #print(model.feature_importances_)
@@ -405,29 +405,30 @@ class POSTagger:
         t_end = timer()
         env.debug(1, ['CV completed:', 'time:', env.job_time(t_start, t_end)])
 
-        #Training на всех данных
-        X_train, y_train = X, y
+        if validation == 'cv':
+            #Training на всех данных
+            X_train, y_train = X, y
 
-        # model = SVC()
-        # model= DecisionTreeClassifier() #79
-        # model= LinearDiscriminantAnalysis() #47
-        # model=LogisticRegression() #48
-        # model = KNeighborsClassifier(n_neighbors=200) #48
-        # model = GaussianNB()   #43
-        #print('Fit...')
+            # model = SVC()
+            # model= DecisionTreeClassifier() #79
+            # model= LinearDiscriminantAnalysis() #47
+            # model=LogisticRegression() #48
+            # model = KNeighborsClassifier(n_neighbors=200) #48
+            # model = GaussianNB()   #43
+            #print('Fit...')
 
-        #print('Validate...')
-        # predictions = model.predict(X_validation)
+            #print('Validate...')
+            # predictions = model.predict(X_validation)
 
-        # print(accuracy_score(Y_validation, predictions))
-        # print(confusion_matrix(Y_validation, predictions))
-        # print(classification_report(Y_validation, predictions))
+            # print(accuracy_score(Y_validation, predictions))
+            # print(confusion_matrix(Y_validation, predictions))
+            # print(classification_report(Y_validation, predictions))
 
-        t_start = timer()
-        env.debug(1, ['Training: START'])
-        model.fit(X_train, y_train)
-        t_end = timer()
-        env.debug(1, ['Training: END',env.job_time(t_start, t_end)])
+            t_start = timer()
+            env.debug(1, ['Training: START'])
+            model.fit(X_train, y_train)
+            t_end = timer()
+            env.debug(1, ['Training: END',env.job_time(t_start, t_end)])
 
         pickle.dump(sc, open(env.filename_scaler(), 'wb'))
         pickle.dump(model, open(env.filename_model_tree(), 'wb'))

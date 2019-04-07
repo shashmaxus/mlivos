@@ -45,19 +45,20 @@ def main():
     #print(c.vocabulary())
     #print(enc.word2token('паровоз'))
     #print(enc.word2token('аз'))
-    t.train(n_frac=0.4, validation='cv')
+    #t.train(n_frac=0.8, validation='cv')
+    #t.train(n_frac=0.95, validation='eval')
     #t.test(2000,2048)
     #a.process_from_texts_file([49], mode='chunk_size')
     #a.process_from_texts_file([58], max_words = 8000)
     #arrt = [2, 45, 43, 44, 42, 40, 41, 46, 36, 37, 38, 34]
-    #arrt = [2]
+    arrt = [69]
     #for i in range (65,71):
-    #for i in arrt:
-        #a.process_from_texts_file([i], max_words = 8000)
+    for i in arrt:
+        a.process_from_texts_file([i], max_words = 8000)
     #t.vizualize2d(n_frac=0.01)
     #nltk.download()
     #a.vizualize2d()
-    #a.vizualize2d(mode='train')
+    a.vizualize2d(mode='train')
     #a.model_train()
     #return 0
     #y = a.predict([0, 1, 2, 3, 4])
