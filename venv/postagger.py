@@ -78,6 +78,7 @@ class POSTagger:
     def pos_word_by_ml(self, awords):
         env = Environment()
         enc = Word_Encoder()
+
         file_model = env.filename_model_tree()
         clf = pickle.load(open(file_model, 'rb'))
         a_predict = np.array([enc.word2token('')])
@@ -100,6 +101,17 @@ class POSTagger:
         c = OpenCorpus()
         g = c.grammemes()
         dg = g.to_dict().get('name')
+
+        #Cache file
+        cache_columns = ['word', 'gram_ml','count']
+        file_cache = env.filename_mlcache_csv()
+        try:
+            df_cache = pd.read_csv(file_cache, index_col='idcorpus', encoding='utf-8')
+        except:
+            env.debug(1, ['POSTagger','pos','Failed to read cache file:', file_cache])
+            df_cache=pd.DataFrame(columns = cache_columns)
+        else:
+            env.debug(1, ['POSTagger','pos','Read ML cache OK:', file_cache])
 
         a_predict = np.array([enc.word2token('')])
         #a_words = ['']
@@ -175,6 +187,15 @@ class POSTagger:
         t_end = timer()
         env.debug(1, ['POStagger', 'pos', 'ML predictions dataframe filled %s sec' % env.job_time(t_start, t_end)])
         #print(df_res)
+        df_cache = pd.concat([df_cache, df_res[df_res.gram_ml != ''][['word','gram_ml','count']]])
+        df_cache = df_cache.groupby(['word', 'gram_ml']).agg({'count' : ['sum']})
+        df_cache.reset_index(inplace = True)
+        df_cache.index.name = 'idcorpus'
+        df_cache.columns = cache_columns
+        df_cache.sort_values(by=['count'], inplace = True, ascending = False)
+        #print(df_cache)
+        env.debug(1, ['POStagger','pos','Write ML cache to CSV:', file_cache])
+        df_cache.to_csv(file_cache, encoding='utf-8')
         return df_res
 
     #Transform Words Dataframe to Tokenz DataFrame

@@ -51,22 +51,24 @@ def main():
     #a.process_from_texts_file([49], mode='chunk_size')
     #a.process_from_texts_file([58], max_words = 8000)
     #arrt = [2, 45, 43, 44, 42, 40, 41, 46, 36, 37, 38, 34]
-    arrt = [69]
-    #for i in range (65,71):
-    for i in arrt:
-        a.process_from_texts_file([i], max_words = 8000)
+    #arrt = [69]
+    #for i in range (51,95):
+    #for i in arrt:
+        #a.process_from_texts_file([i], max_words = 8000)
     #t.vizualize2d(n_frac=0.01)
     #nltk.download()
     #a.vizualize2d()
-    a.vizualize2d(mode='train')
+    #a.vizualize2d(mode='train')
+    #a.vizualize2d(mode='test')
     #a.model_train()
     #return 0
     #y = a.predict([0, 1, 2, 3, 4])
     #y = a.predict([0, 1, 2, 3, 4])
-    #print(a.predict([1], b_makestat=True))
+    print(a.predict([16], b_makestat=True))
+    a.vizualize2d(mode='test')
     #for i in y:
     #    print('idtext=%s' % i, da.get(i))
-    #text2predict = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    #text2predict = [11, 12, 13, 14, 15]
     #y = a.predict(text2predict, b_makestat=True)  # предсказать - указать номер текста
     #j = 0
     #for i in y:
@@ -83,6 +85,6 @@ def main():
     y_predict=t.pos_word_by_ml(X_predict)
 
     print(['%s/%s' % (X_predict[i],dg.get(y_predict[i])) for i in range(0,len(y_predict))])
-    #r.make_report()
+    r.make_report()
 
 main()

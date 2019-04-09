@@ -23,10 +23,13 @@ class Reporter:
         data = a.get_texts_stat() #Статистика по текстам из файла обучающей выборки
         test = a.get_texts_stat(mode='test') #Статистика по текстам тестовой выборки
         #print(data)
-        test['predict'] = test['predict'].astype(int)
+        #test['predict'] = test['predict'].astype(int)
         test['validation'] = 0
         test.loc[test.idauthor == test.predict,'validation'] = 1
+        print(data)
         print(test)
+
+        #Summary stat
         group = pd.merge(data, test, on='idauthor', how='left', suffixes=('', '_test'))
         print(group)
         group = group.groupby(['idauthor', 'name_author'], as_index=False).agg({'idtext' : ['nunique'],
@@ -48,6 +51,7 @@ class Reporter:
                          'Объём текстов для проверки (кол-во слов)',
                          'Точность определения'
                          ]
+        n_accuracy = group['Точность определения'].mean()
         #Целые числа показываем без дробной части
         int_cols = ['Кол-во текстов для обучения',
                          'Объём текстов для обучения (кол-во слов)',
@@ -59,8 +63,58 @@ class Reporter:
         s = group.style.set_properties(**{'text-align': 'right'})
         group.fillna('', inplace = True)
         s.hide_index().render()
+
+        #Training stat
+        group_train =  data.groupby(['author'], as_index=False).agg({'idauthor' : ['count'],
+                                                                'sentences_text' : ['sum'],
+                                                                'words_text' : ['sum'],
+                                                                'sentence_mean': ['mean'],
+                                                                'name': [lambda col: '<br />'.join(col)],
+                                                                    })
+        group_train.reset_index(drop = True, inplace = True)
+        s_train = group_train.style.set_properties(**{'text-align': 'right'})
+        group_train.fillna('', inplace=True)
+        group_train.columns = ['Писатель',
+                               'Кол-во текстов',
+                               'Кол-во предложений',
+                               'Кол-во слов',
+                               'Средняя длина предложения',
+                               'Произведения'
+                         ]
+        n_train = group_train['Кол-во текстов'].sum()
+        s_train.hide_index().render()
+
+        # Testing stat
+        group_test = test.groupby(['author'], as_index=False).agg({'idauthor': ['count'],
+                                                                    'sentences_text': ['sum'],
+                                                                    'words_text': ['sum'],
+                                                                    'sentence_mean': ['mean'],
+                                                                    'name': [lambda col: '<br />'.join(col)],
+                                                                    'validation': ['mean'],
+                                                                    'shortname_predict': [lambda col: '<br />'.join(col)],
+                                                                    })
+        group_test.reset_index(drop=True, inplace=True)
+        s_test = group_test.style.set_properties(**{'text-align': 'right'})
+        group_test.fillna('', inplace=True)
+        group_test.columns = ['Писатель',
+                               'Кол-во текстов',
+                               'Кол-во предложений',
+                               'Кол-во слов',
+                               'Средняя длина предложения',
+                               'Произведения',
+                               'Результат проверки',
+                               'Определён автор',
+                               ]
+        n_test = group_test['Кол-во текстов'].sum()
+        s_test.hide_index().render()
+
         template_vars = {"title": "Отчёт",
-                         "train_texts_pivot_table_style_render" : s.render()
+                         "detection_accuracy": '%s' % (round(n_accuracy,4)*100),
+                         "train_texts_pivot_table_style_render" : s.render(),
+                         "n_train_texts": round(n_train,0),
+                         "train_texts_table_style_render": s_train.render(),
+                         "n_test_texts": round(n_test,0),
+                         "test_texts_table_style_render": s_test.render()
                          }
         html_out = template.render(template_vars)
 

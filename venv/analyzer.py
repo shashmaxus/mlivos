@@ -373,7 +373,7 @@ class mlAnalyzer:
         kf = KFold(n_splits = n_splits, shuffle = True, random_state = seed)
         #clf = DecisionTreeClassifier(criterion='gini', random_state=seed)
         #clf = GradientBoostingClassifier(n_estimators=50)
-        model = xgb.XGBClassifier(n_estimators = 200, max_depth = 8, colsample = 1, subsample = 1, seed = seed)
+        model = xgb.XGBClassifier(n_estimators = 400, max_depth = 24, colsample = 1, subsample = 1, seed = seed)
         cv_scores = cross_val_score(model, X, y, cv = kf)
 
         #eval
@@ -526,6 +526,9 @@ class mlAnalyzer:
         group.columns = columns[4:]
         group.reset_index(inplace=True)
         data = pd.merge(group, authors, on='idauthor', how='left', suffixes=('', '_author'))
+        if mode == 'test':
+            data['predict'] = data['predict'].astype(int)
+        data = pd.merge(data, authors, left_on='predict', right_on='idauthor', how='left', suffixes=('', '_predict'))
         return data
 
     def vizualize2d(self, mode='train'):

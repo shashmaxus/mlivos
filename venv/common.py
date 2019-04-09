@@ -27,6 +27,9 @@ class Environment:
     def debug_info_level(self):
         return 1
 
+    def filename_mlcache_csv(self):
+        return "c:/prj/mlivos_data/db/cache_ml.csv"
+
     def filename_dict_xml(self):
         return "C:/Prj/corpus/dict.opcorpora.xml"
 
